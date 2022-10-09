@@ -1,5 +1,6 @@
 """Saswell (Tuya whitelabel) 88teujp thermostat valve quirk."""
 
+import asyncio
 import logging
 
 from zigpy.profiles import zha
@@ -36,11 +37,13 @@ OCCUPIED_HEATING_SETPOINT_REPORTED = "occupied_heating_setpoint_reported"
 SYSTEM_MODE_REPORTED = "system_mode_reported"
 LOCAL_TEMP_REPORTED = "local_temp_reported"
 BATTERY_REPORTED = "battery_reported"
+SCHEDULE_STATE_REPORTED = "schedule_state_reported"
 
 OCCUPIED_HEATING_SETPOINT_COMMAND_ID = 615
 SYSTEM_MODE_COMMAND_ID = 357
 LOCAL_TEMP_COMMAND_ID = 614
 BATTERY_STATE_COMMAND_ID = 1385
+SCHEDULE_ENABLED_COMMAND_ID = 364
 
 CTRL_SEQ_OF_OPER_ATTR = 0x001B
 
@@ -49,7 +52,7 @@ MAX_HEAT_SETPOINT_ATTR = 0x0016
 
 
 class ManufacturerThermostatCluster(TuyaManufClusterAttributes):
-    """Manufacturer thermostat cluster."""
+    """Tuya manufacturer specific cluster."""
 
     attributes = TuyaManufClusterAttributes.attributes.copy()
     attributes.update(
@@ -62,6 +65,7 @@ class ManufacturerThermostatCluster(TuyaManufClusterAttributes):
             ),
             LOCAL_TEMP_COMMAND_ID: ("local_temperature", t.uint32_t, True),
             BATTERY_STATE_COMMAND_ID: ("battery_state", t.uint8_t, True),
+            SCHEDULE_ENABLED_COMMAND_ID: ("schedule_enabled", t.uint8_t, True),
         }
     )
 
@@ -81,6 +85,25 @@ class ManufacturerThermostatCluster(TuyaManufClusterAttributes):
             self.endpoint.device.thermostat_bus.listener_event(
                 LOCAL_TEMP_REPORTED, value
             )
+        elif attrid == SCHEDULE_ENABLED_COMMAND_ID:
+            self.endpoint.device.thermostat_bus.listener_event(
+                SCHEDULE_STATE_REPORTED, value
+            )
+
+    async def write_attributes(self, attributes, manufacturer=None):
+        """Implement writeable attributes."""
+
+        if "system_mode" in attributes:
+
+            async def _disable_schedule():
+                await asyncio.sleep(3)
+                await self.write_attributes(
+                    {"schedule_enabled": 0}, manufacturer=manufacturer
+                )
+
+            asyncio.get_running_loop().create_task(_disable_schedule())
+
+        return await super().write_attributes(attributes, manufacturer)
 
 
 class PowerConfigurationCluster(LocalDataCluster, PowerConfiguration):
@@ -155,18 +178,25 @@ class ThermostatCluster(TuyaThermostatCluster):
             )
             _LOGGER.debug("reported system_mode: off")
 
+    def schedule_state_reported(self, value):
+        """Handle reported schedule state."""
+        if value == 1:
+            _LOGGER.debug("reported schedule state: enabled")
+        else:
+            _LOGGER.debug("reported schedule state: disabled")
+
     def map_attribute(self, attribute, value):
         """Map standardized attribute value to dict of manufacturer values."""
 
         if attribute == "occupied_heating_setpoint":
             # centidegree to decidegree
-            return {OCCUPIED_HEATING_SETPOINT_COMMAND_ID: round(value / 10)}
+            return {"occupied_heating_setpoint": round(value / 10)}
 
         if attribute == "system_mode":
             if value == self.SystemMode.Off:
-                return {SYSTEM_MODE_COMMAND_ID: 0}
+                return {"system_mode": 0}
             if value == self.SystemMode.Heat:
-                return {SYSTEM_MODE_COMMAND_ID: 1}
+                return {"system_mode": 1}
 
 
 class Thermostat_TYST11_c88teujp(TuyaThermostat):
@@ -228,8 +258,6 @@ class Thermostat_TZE200_c88teujp(TuyaThermostat):
     """Saswell 88teujp thermostat valve."""
 
     signature = {
-        #  endpoint=1 profile=260 device_type=81 device_version=0 input_clusters=[0, 4, 5, 61184]
-        #  output_clusters=[10, 25]>
         MODELS_INFO: [
             ("_TZE200_c88teujp", "TS0601"),
             ("_TZE200_azqp6ssj", "TS0601"),
@@ -269,6 +297,7 @@ class Thermostat_TZE200_c88teujp(TuyaThermostat):
                 OUTPUT_CLUSTERS: [
                     Time.cluster_id,
                     Ota.cluster_id,
+                    ManufacturerThermostatCluster,
                     PowerConfigurationCluster,
                     ThermostatCluster,
                 ],
