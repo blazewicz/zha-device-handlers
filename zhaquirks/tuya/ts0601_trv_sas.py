@@ -37,7 +37,7 @@ OCCUPIED_HEATING_SETPOINT_REPORTED = "occupied_heating_setpoint_reported"
 SYSTEM_MODE_REPORTED = "system_mode_reported"
 LOCAL_TEMP_REPORTED = "local_temp_reported"
 BATTERY_REPORTED = "battery_reported"
-SCHEDULE_STATE_REPORTED = "schedule_state_reported"
+PROGRAMING_OPER_MODE_REPORTED = "programing_oper_mode_reported"
 
 OCCUPIED_HEATING_SETPOINT_COMMAND_ID = 615
 SYSTEM_MODE_COMMAND_ID = 357
@@ -87,7 +87,7 @@ class ManufacturerThermostatCluster(TuyaManufClusterAttributes):
             )
         elif attrid == SCHEDULE_ENABLED_COMMAND_ID:
             self.endpoint.device.thermostat_bus.listener_event(
-                SCHEDULE_STATE_REPORTED, value
+                PROGRAMING_OPER_MODE_REPORTED, value
             )
 
     async def write_attributes(self, attributes, manufacturer=None):
@@ -178,12 +178,19 @@ class ThermostatCluster(TuyaThermostatCluster):
             )
             _LOGGER.debug("reported system_mode: off")
 
-    def schedule_state_reported(self, value):
-        """Handle reported schedule state."""
+    def programing_oper_mode_reported(self, value):
+        """Handle reported programming operation mode."""
         if value == 1:
-            _LOGGER.debug("reported schedule state: enabled")
+            self._update_attribute(
+                self.attributes_by_name["programing_oper_mode"].id,
+                Thermostat.ProgrammingOperationMode.Schedule_programming_mode,
+            )
+            _LOGGER.debug("reported programming operation mode: schedule")
         else:
-            _LOGGER.debug("reported schedule state: disabled")
+            self._update_attribute(
+                self.attributes_by_name["programing_oper_mode"].id, Thermostat.ProgrammingOperationMode.Simple
+            )
+            _LOGGER.debug("reported programming operation mode: simple")
 
     def map_attribute(self, attribute, value):
         """Map standardized attribute value to dict of manufacturer values."""
@@ -197,6 +204,12 @@ class ThermostatCluster(TuyaThermostatCluster):
                 return {"system_mode": 0}
             if value == self.SystemMode.Heat:
                 return {"system_mode": 1}
+
+        if attribute == "programing_oper_mode":
+            if value == Thermostat.ProgrammingOperationMode.Schedule_programming_mode:
+                return {"schedule_enabled": 1}
+            if value == Thermostat.ProgrammingOperationMode.Simple:
+                return {"schedule_enabled": 0}
 
 
 class Thermostat_TYST11_c88teujp(TuyaThermostat):
@@ -267,6 +280,10 @@ class Thermostat_TZE200_c88teujp(TuyaThermostat):
             ("_TZE200_2ekuz3dz", "TS0601"),
         ],
         ENDPOINTS: {
+            # <SimpleDescriptor endpoint=1 profile=260 device_type=81
+            # device_version=0
+            # input_clusters=[0, 4, 5, 61184]
+            # output_clusters=[10, 25]>
             1: {
                 PROFILE_ID: zha.PROFILE_ID,
                 DEVICE_TYPE: zha.DeviceType.SMART_PLUG,
@@ -288,19 +305,13 @@ class Thermostat_TZE200_c88teujp(TuyaThermostat):
                 DEVICE_TYPE: zha.DeviceType.THERMOSTAT,
                 INPUT_CLUSTERS: [
                     Basic.cluster_id,
+                    PowerConfigurationCluster,
                     Groups.cluster_id,
                     Scenes.cluster_id,
-                    ManufacturerThermostatCluster,
-                    PowerConfigurationCluster,
                     ThermostatCluster,
-                ],
-                OUTPUT_CLUSTERS: [
-                    Time.cluster_id,
-                    Ota.cluster_id,
                     ManufacturerThermostatCluster,
-                    PowerConfigurationCluster,
-                    ThermostatCluster,
                 ],
+                OUTPUT_CLUSTERS: [Time.cluster_id, Ota.cluster_id],
             }
         }
     }
