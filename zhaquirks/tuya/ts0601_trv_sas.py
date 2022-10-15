@@ -38,12 +38,14 @@ SYSTEM_MODE_REPORTED = "system_mode_reported"
 LOCAL_TEMP_REPORTED = "local_temp_reported"
 BATTERY_REPORTED = "battery_reported"
 PROGRAMING_OPER_MODE_REPORTED = "programing_oper_mode_reported"
+LOCAL_TEMP_CALIBRATION_REPORTED = "local_temp_calibration_reported"
 
 OCCUPIED_HEATING_SETPOINT_COMMAND_ID = 615
 SYSTEM_MODE_COMMAND_ID = 357
 LOCAL_TEMP_COMMAND_ID = 614
 BATTERY_STATE_COMMAND_ID = 1385
 SCHEDULE_ENABLED_COMMAND_ID = 364
+TEMPERATURE_CALIBRATION_COMMAND_ID = 539
 
 CTRL_SEQ_OF_OPER_ATTR = 0x001B
 
@@ -66,6 +68,7 @@ class ManufacturerThermostatCluster(TuyaManufClusterAttributes):
             LOCAL_TEMP_COMMAND_ID: ("local_temperature", t.uint32_t, True),
             BATTERY_STATE_COMMAND_ID: ("battery_state", t.uint8_t, True),
             SCHEDULE_ENABLED_COMMAND_ID: ("schedule_enabled", t.uint8_t, True),
+            TEMPERATURE_CALIBRATION_COMMAND_ID: ("temperature_calibration", t.int32s, True),
         }
     )
 
@@ -88,6 +91,10 @@ class ManufacturerThermostatCluster(TuyaManufClusterAttributes):
         elif attrid == SCHEDULE_ENABLED_COMMAND_ID:
             self.endpoint.device.thermostat_bus.listener_event(
                 PROGRAMING_OPER_MODE_REPORTED, value
+            )
+        elif attrid == TEMPERATURE_CALIBRATION_COMMAND_ID:
+            self.endpoint.device.thermostat_bus.listener_event(
+                LOCAL_TEMP_CALIBRATION_REPORTED, value
             )
 
     async def write_attributes(self, attributes, manufacturer=None):
@@ -192,6 +199,13 @@ class ThermostatCluster(TuyaThermostatCluster):
             )
             _LOGGER.debug("reported programming operation mode: simple")
 
+    def local_temp_calibration_reported(self, value):
+        """Handle reported local temperature calibration."""
+        self._update_attribute(
+            self.attributes_by_name["local_temperature_calibration"].id, value * 10
+        )
+        _LOGGER.warning("reported temperature calibration: %r", value)
+
     def map_attribute(self, attribute, value):
         """Map standardized attribute value to dict of manufacturer values."""
 
@@ -210,6 +224,9 @@ class ThermostatCluster(TuyaThermostatCluster):
                 return {"schedule_enabled": 1}
             if value == Thermostat.ProgrammingOperationMode.Simple:
                 return {"schedule_enabled": 0}
+
+        if attribute == "local_temperature_calibration":
+            return {"temperature_calibration": round(value / 10)}
 
 
 class Thermostat_TYST11_c88teujp(TuyaThermostat):
